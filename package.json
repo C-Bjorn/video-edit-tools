@@ -30,6 +30,8 @@
     "test:unit": "vitest run tests/unit",
     "test:integration": "vitest run tests/integration",
     "test:e2e": "vitest run tests/e2e",
+    "example:shorts": "npx tsx examples/generate-shorts.ts",
+    "example:youtube": "npx tsx examples/generate-youtube.ts",
     "prepublishOnly": "npm run build && npm run test:coverage"
   },
   "dependencies": {

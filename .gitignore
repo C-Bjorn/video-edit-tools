@@ -41,6 +41,11 @@ tests/fixtures/sample.mp4
 tests/fixtures/sample.mp3
 tests/fixtures/sample.srt
 
+# Output generated file
+output-shorts.mp4
+output-youtube.mp4
+output-youtube-thumbnail.jpg
+
 # IDE / Editor
 .vscode/
 .idea/
