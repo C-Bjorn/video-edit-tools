@@ -3,12 +3,20 @@ import { VideoInput, ConcatOptions, Result, ErrorCode } from '../types.js';
 import { loadVideo } from '../utils/load-video.js';
 import { ok, err } from '../utils/result.js';
 import { generateTmpFilePath, cleanupTmpFile } from '../utils/tmp.js';
+import { getMetadata } from './get-metadata.js';
 import fs from 'node:fs/promises';
 
 export async function concat(inputs: VideoInput[], options?: ConcatOptions): Promise<Result<Buffer>> {
   if (inputs.length < 2) {
     return err(ErrorCode.INVALID_INPUT, 'At least 2 inputs required for concat');
   }
+
+  const firstMeta = await getMetadata(inputs[0]);
+  if (!firstMeta.ok) {
+      return err(firstMeta.code, 'Failed to read metadata from first input for concat base resolution');
+  }
+  const targetW = firstMeta.data.width || 1920;
+  const targetH = firstMeta.data.height || 1080;
 
   const loadedInputs: { path: string; cleanup: () => Promise<void> }[] = [];
   try {
@@ -33,7 +41,7 @@ export async function concat(inputs: VideoInput[], options?: ConcatOptions): Pro
       // Let's implement dynamic scaling using complexFilter if needed, or assume caller provides same sizes.
       // But prompt strictly says "내부 정규화 단계를 추가한다". We will add scale filter.
       
-      const filterInputs = loadedInputs.map((_, i) => `[${i}:v]scale=1920:1080:force_original_aspect_ratio=decrease,pad=1920:1080:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]; [${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`);
+      const filterInputs = loadedInputs.map((_, i) => `[${i}:v]scale=${targetW}:${targetH}:force_original_aspect_ratio=decrease,pad=${targetW}:${targetH}:(ow-iw)/2:(oh-ih)/2,setsar=1[v${i}]; [${i}:a]aformat=sample_rates=44100:channel_layouts=stereo[a${i}]`);
       const concatDefs = loadedInputs.map((_, i) => `[v${i}][a${i}]`).join('');
       
       cmd.complexFilter([
