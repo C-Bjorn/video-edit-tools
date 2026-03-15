@@ -4,7 +4,7 @@ Deterministic video editing SDK for AI agents. Ships with MCP tools.
 
 ## Demo
 
-<video src="./examples/intro-video/output/intro-en.mp4" controls="controls" muted="muted" width="100%"></video>
+[![Demo video](./examples/intro-video/output/slides-en/s1-cover.png)](./examples/intro-video/output/intro-en.mp4)
 
 ## Features
 
