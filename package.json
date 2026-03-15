@@ -20,7 +20,8 @@
   },
   "exports": {
     ".": "./dist/index.js",
-    "./mcp": "./dist/mcp/index.js"
+    "./mcp": "./dist/mcp/index.js",
+    "./dist/ops/*": "./dist/ops/*"
   },
   "scripts": {
     "build": "tsc",
