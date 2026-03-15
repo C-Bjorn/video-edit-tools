@@ -5,7 +5,7 @@ Deterministic video editing SDK for AI agents. Ships with MCP tools.
 ## Demo
 
 <video width="100%" controls autoplay loop>
-  <source src="https://github.com/swimmingkiim/video-edit-tools/raw/main/examples/intro-video/output/intro-en.mp4" type="video/mp4" />
+  <source src="https://github.com/user-attachments/assets/a1e5855c-b622-4ac0-9529-c2d9c26658f4" type="video/mp4" />
   <p>현재 브라우저에서 비디오를 지원하지 않습니다.</p>
 </video>
 
