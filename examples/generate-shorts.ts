@@ -1,88 +1,149 @@
-import { pipeline, getMetadata } from '../src/index.js';
+import { pipeline, getMetadata, replaceAudio, addSubtitles } from '../src/index.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { gradientOverlay, addText } from 'image-edit-tools';
 
 /**
  * YouTube Shorts / TikTok Style Video Generator Example
  * 
- * This example demonstrates how to:
- * 1. Take a standard 16:9 1080p horizontal video
- * 2. Crop/Resize it into a 9:16 vertical video (1080x1920) for Shorts
- * 3. Add dynamic styling (text overlay for a title/hook)
- * 4. Apply a filter (e.g., slight contrast or vignette for punchiness)
+ * Demonstrates:
+ * 1. Using image-edit-tools to generate a dynamic background image
+ * 2. Creating a 10-second video from that image using ffmpeg directly (or via convert hack)
+ * 3. Adding background music (replaceAudio)
+ * 4. Adding explanatory subtitles (addSubtitles)
  */
 async function generateShorts() {
-    console.log('🎬 Starting YouTube Shorts generation...');
+    console.log('🎬 Starting YouTube Shorts generation with image-edit-tools and BGM...');
     
     const examplesDir = process.cwd();
-    // Assuming the user runs this from the project root: node dist/examples/generate-shorts.js
-    const fixturesDir = path.join(examplesDir, 'tests', 'fixtures');
-    const inputVideo = path.join(fixturesDir, 'sample.mp4');
+    const assetsDir = path.join(examplesDir, 'examples', 'assets');
+    const bgmPath = path.join(assetsDir, 'Will You Still Love Me Tomorrow.mp3');
+    const outputPath = path.join(examplesDir, 'examples', 'output-shorts.mp4');
+    const tempVideoPath = path.join(examplesDir, 'tmp', 'shorts-temp.mp4');
+    const bgImagePath = path.join(examplesDir, 'tmp', 'shorts-bg.png');
     
-    // Check if the sample input exists
+    // Ensure tmp dir exists
+    await fs.mkdir(path.join(examplesDir, 'tmp'), { recursive: true });
+
     try {
-        await fs.access(inputVideo);
+        await fs.access(bgmPath);
     } catch {
-        console.error(`❌ Example requires a sample video at ${inputVideo}`);
-        console.error(`Please run 'npm run test' from the root directory first to generate the test fixtures.`);
+        console.error(`❌ Background music missing at ${bgmPath}`);
         process.exit(1);
     }
-    
-    const outputPath = path.join(examplesDir, 'output-shorts.mp4');
 
-    const result = await pipeline(inputVideo, [
-        // 1. Convert horizontal to vertical format using the crop and resize tools.
-        // Or simply use 'cover' fit on resize to center-crop automatically.
-        { op: 'resize', width: 1080, height: 1920, fit: 'cover' },
-        
-        // 2. Add an engaging text overlay (hook) at the top
-        { 
-            op: 'addText', 
-            layers: [
-                {
-                    text: 'WAIT FOR IT... 😱',
-                    x: 540, // center of 1080
-                    y: 200, // near the top
-                    fontSize: 80,
-                    color: '#ffffff',
-                    // Using a Google Font (requires internet access)
-                    fontUrl: 'https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Black.ttf'
-                },
-                {
-                    text: 'Like & Subscribe',
-                    x: 540,
-                    y: 1600, // near the bottom
-                    fontSize: 60,
-                    color: '#ff0000',
-                    fontUrl: 'https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Bold.ttf'
-                }
-            ]
+    // 1. Create Background Image using image-edit-tools
+    console.log('🖼️  Generating background image...');
+    
+    // Using raw Sharp since createBlankImage might not be exported from the installed version
+    const sharp = (await import('sharp')).default;
+    const blankBuffer = await sharp({
+        create: {
+            width: 1080,
+            height: 1920,
+            channels: 4,
+            background: { r: 26, g: 26, b: 46, alpha: 1 } // #1a1a2e
+        }
+    }).png().toBuffer();
+
+    // Add a cool gradient
+    const withGradient = await gradientOverlay(blankBuffer, {
+        direction: 'top',
+        color: '#e94560',
+        opacity: 0.6,
+        coverage: 0.8
+    });
+    if (!withGradient.ok) throw new Error('Failed to add gradient');
+
+    // Add title text using image-edit-tools which expects layers array
+    const finalBg = await addText(withGradient.data, {
+         layers: [{
+             text: 'video-edit-tools\nSDK Demo',
+             fontFamily: 'Arial',
+             fontSize: 80,
+             color: '#ffffff',
+             x: 540,
+             y: 400
+         }]
+    });
+    if (!finalBg.ok) throw new Error('Failed to add text');
+    
+    await fs.writeFile(bgImagePath, finalBg.data as Buffer);
+
+    // 2. We need to convert this single image into a 10-second video
+    console.log('🎞️  Converting image to base video...');
+    const Ffmpeg = (await import('fluent-ffmpeg')).default;
+    await new Promise<void>((resolve, reject) => {
+         Ffmpeg(bgImagePath)
+            .loop(10) // 10 seconds
+            .fps(30)
+            .videoCodec('libx264')
+            .format('mp4')
+            .outputOptions(['-pix_fmt', 'yuv420p'])
+            .save(tempVideoPath)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(err));
+    });
+
+    // 3. Add Background Music (replaceAudio) and Subtitles via pipeline
+    console.log('🎶 Adding Audio and 📝 Subtitles...');
+    
+    const srtContent = `1
+00:00:01,000 --> 00:00:03,500
+Welcome to video-edit-tools!
+
+2
+00:00:04,000 --> 00:00:06,500
+This video was entirely generated by AI.
+
+3
+00:00:07,000 --> 00:00:09,500
+Combining images, audio, and text easily.
+`;
+
+    // Write temp SRT
+    const srtTempPath = path.join(examplesDir, 'tmp', 'shorts.srt');
+    await fs.writeFile(srtTempPath, srtContent);
+
+    // Run them in a chain (pipeline automatically passes output to next input)
+    const result = await pipeline(tempVideoPath, [
+        {
+            op: 'replaceAudio',
+            audio: bgmPath,
+            fadeIn: 1,
+            fadeOut: 2,
+            loop: true
         },
-        
-        // 3. Make colors punchier for social media
-        { op: 'adjust', contrast: 1.2, saturation: 1.3 },
-        
-        // 4. Save to a final mp4 (pipeline automatically saves intermediate states, this finalizes it)
-        { op: 'convert', format: 'mp4', quality: 80 }
+        {
+            op: 'addSubtitles',
+            subtitles: srtTempPath,
+            style: {
+                 fontSize: 24,
+                 color: '#ffffff',
+                 outline: true,
+                 position: 'bottom'
+            }
+        }
     ]);
 
     if (!result.ok) {
         console.error('❌ Failed to generate Shorts:', result.error);
-        if (result.code) console.error(`Error Code: ${result.code}`);
         return;
     }
 
-    // Pipeline returns a Result<Buffer> containing the video data
-    const generatedBuffer = result.data;
-    
-    // Save it to our examples directory
-    await fs.writeFile(outputPath, generatedBuffer);
+    // Save it
+    await fs.writeFile(outputPath, result.data as Buffer);
     
     const meta = await getMetadata(outputPath);
     if (meta.ok) {
         console.log('✅ Success! YouTube Shorts video generated at:', outputPath);
         console.log(`📊 Video Stats: ${meta.data.width}x${meta.data.height}, ${meta.data.duration}s, ${meta.data.fps} FPS`);
     }
+
+    // Cleanup
+    await fs.unlink(tempVideoPath).catch(() => {});
+    await fs.unlink(bgImagePath).catch(() => {});
+    await fs.unlink(srtTempPath).catch(() => {});
 }
 
 generateShorts().catch(console.error);

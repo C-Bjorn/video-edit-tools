@@ -32,29 +32,39 @@ export async function replaceAudio(input: VideoInput, options: ReplaceAudioOptio
           cmd.inputOptions(['-stream_loop -1']);
       }
 
-      const filters: string[] = [];
-      let currentA = '[1:a]';
+      const filters: any[] = [];
+      let currentA = '1:a';
       
       if (options.fadeIn) {
-          filters.push(`${currentA}afade=t=in:st=0:d=${options.fadeIn}[afIn]`);
-          currentA = '[afIn]';
+          filters.push({
+              filter: 'afade',
+              options: `t=in:st=0:d=${options.fadeIn}`,
+              inputs: currentA,
+              outputs: 'afIn'
+          });
+          currentA = 'afIn';
       }
       
       if (options.fadeOut && duration > 0) {
           const startOut = Math.max(0, duration - options.fadeOut);
-          filters.push(`${currentA}afade=t=out:st=${startOut}:d=${options.fadeOut}[afOut]`);
-          currentA = '[afOut]';
+          filters.push({
+              filter: 'afade',
+              options: `t=out:st=${startOut}:d=${options.fadeOut}`,
+              inputs: currentA,
+              outputs: 'afOut'
+          });
+          currentA = 'afOut';
       }
       
       if (filters.length > 0) {
-          cmd.complexFilter(filters, currentA.replace(/\[|\]/g, ''));
+          cmd.complexFilter(filters);
       }
 
-      // map video from first, audio from second
+      // map video from first, audio from second (or filtered chain)
       cmd.outputOptions([
           '-map 0:v:0',
-          filters.length > 0 ? `-map ${currentA}` : '-map 1:a:0',
-          '-c:v copy' // we can just copy video if possible, but map will re-encode audio
+          filters.length > 0 ? `-map [${currentA}]` : '-map 1:a:0',
+          '-c:v copy' // copy video stream directly
       ]);
       
       // shortest ensures the looped audio does not extend video duration

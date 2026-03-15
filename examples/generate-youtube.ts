@@ -1,64 +1,127 @@
 import { pipeline, getMetadata, generateThumbnail } from '../src/index.js';
 import path from 'node:path';
 import fs from 'node:fs/promises';
+import { gradientOverlay, addText } from 'image-edit-tools';
 
 /**
  * Full YouTube Video Workflow Example
  * 
- * This example demonstrates a typical YouTube workflow:
- * 1. Take a raw video input.
- * 2. Trim the intro/outro out of the video.
- * 3. Add a transition effect (if we were concatenating, we'd use addTransition).
- * 4. Add a permanent channel watermark logo (using composite).
- * 5. Generate an engaging 16:9 thumbnail frame for the video.
+ * Demonstrates:
+ * 1. Generating a 16:9 background using image-edit-tools
+ * 2. Converting it to a base video
+ * 3. Adding explanatory subtitles and background music
+ * 4. Generating a thumbnail
  */
 async function generateYoutubeVideo() {
-    console.log('🎬 Starting YouTube Full Video generation...');
+    console.log('🎬 Starting YouTube Full Video generation with image-edit-tools and BGM...');
     
     const examplesDir = process.cwd();
-    // Assuming the user runs this from the project root: node dist/examples/generate-youtube.js
-    const fixturesDir = path.join(examplesDir, 'tests', 'fixtures');
-    const inputVideo = path.join(fixturesDir, 'sample.mp4');
+    const assetsDir = path.join(examplesDir, 'examples', 'assets');
+    const bgmPath = path.join(assetsDir, 'Will You Still Love Me Tomorrow.mp3');
     
+    const outputPath = path.join(examplesDir, 'examples', 'output-youtube.mp4');
+    const outThumbPath = path.join(examplesDir, 'examples', 'output-youtube-thumbnail.jpg');
+    
+    const tempVideoPath = path.join(examplesDir, 'tmp', 'youtube-temp.mp4');
+    const bgImagePath = path.join(examplesDir, 'tmp', 'youtube-bg.png');
+    const srtTempPath = path.join(examplesDir, 'tmp', 'youtube.srt');
+
+    await fs.mkdir(path.join(examplesDir, 'tmp'), { recursive: true });
+
     try {
-        await fs.access(inputVideo);
+        await fs.access(bgmPath);
     } catch {
-        console.error(`❌ Example requires a sample video at ${inputVideo}`);
-        console.error(`Please run 'npm run test' from the root directory first to generate the test fixtures.`);
+        console.error(`❌ Background music missing at ${bgmPath}`);
         process.exit(1);
     }
+
+    // 1. Create Background Image using image-edit-tools
+    console.log('🖼️  Generating 16:9 background image...');
     
-    const outputPath = path.join(examplesDir, 'output-youtube.mp4');
-    const outThumbPath = path.join(examplesDir, 'output-youtube-thumbnail.jpg');
+    const sharp = (await import('sharp')).default;
+    const blankBuffer = await sharp({
+        create: {
+            width: 1920,
+            height: 1080,
+            channels: 4,
+            background: { r: 15, g: 52, b: 96, alpha: 1 } // #0f3460
+        }
+    }).png().toBuffer();
 
-    // For the overlay, let's just make a small solid color "logo" image in tmp to overlay
-    const logoPath = path.join(process.cwd(), '..', 'tmp', 'logo.png');
-    // ...in a real app, this would be an actual png. For this example we'll skip composite
-    // if we don't have a logo file readily handy, but we will use the text overlay as a "watermark".
+    const withGradient = await gradientOverlay(blankBuffer, {
+        direction: 'right',
+        color: '#16213e',
+        opacity: 0.8,
+        coverage: 1.0
+    });
+    if (!withGradient.ok) throw new Error('Failed to add gradient');
 
-    const result = await pipeline(inputVideo, [
-        // 1. Ensure resolution is 1080p standard
-        { op: 'resize', width: 1920, height: 1080, fit: 'cover' },
-        
-        // 2. Add a watermark to the bottom right
-        { 
-            op: 'addText', 
-            layers: [
-                {
-                    text: '@MyAwesomeChannel',
-                    x: 1800, // Bottom right approx
-                    y: 1000, 
-                    fontSize: 32,
-                    color: '#ffffff',
-                    // Optional opacity isn't directly supported by addText easily without complex filter tweaks,
-                    // but we can pass standard hex.
-                    fontUrl: 'https://raw.githubusercontent.com/googlefonts/roboto/main/src/hinted/Roboto-Regular.ttf'
-                }
-            ]
+    // Add title text
+    const finalBg = await addText(withGradient.data, {
+         layers: [{
+             text: 'video-edit-tools Full SDK Tutorial\n(Deterministic AI Video Generation)',
+             fontFamily: 'Arial',
+             fontSize: 64,
+             color: '#ffffff',
+             x: 960,
+             y: 300
+         }]
+    });
+    if (!finalBg.ok) throw new Error('Failed to add text');
+    
+    await fs.writeFile(bgImagePath, finalBg.data as Buffer);
+
+    // 2. Convert single image to a 10-second 16:9 video
+    console.log('🎞️  Converting image to base video...');
+    const Ffmpeg = (await import('fluent-ffmpeg')).default;
+    await new Promise<void>((resolve, reject) => {
+         Ffmpeg(bgImagePath)
+            .loop(10) // 10 seconds
+            .fps(30)
+            .videoCodec('libx264')
+            .format('mp4')
+            .outputOptions(['-pix_fmt', 'yuv420p'])
+            .save(tempVideoPath)
+            .on('end', () => resolve())
+            .on('error', (err) => reject(err));
+    });
+
+    // 3. Add Background Music and Subtitles
+    console.log('🎶 Adding Audio and 📝 Subtitles...');
+    
+    const srtContent = `1
+00:00:01,000 --> 00:00:03,500
+Welcome to the video-edit-tools full tutorial.
+
+2
+00:00:04,000 --> 00:00:06,500
+Just like the shorts example, this is fully automated.
+
+3
+00:00:07,000 --> 00:00:09,500
+Using image-edit-tools + ffmpeg pipelines natively in Node.js.
+`;
+
+    await fs.writeFile(srtTempPath, srtContent);
+
+    const result = await pipeline(tempVideoPath, [
+        {
+            op: 'replaceAudio',
+            audio: bgmPath,
+            fadeIn: 1,
+            fadeOut: 2,
+            loop: true
         },
-        
-        // 3. Finalize
-        { op: 'convert', format: 'mp4', quality: 90 }
+        {
+            op: 'addSubtitles',
+            subtitles: srtTempPath,
+            style: {
+                 fontSize: 32,
+                 color: '#ffffff',
+                 outline: true,
+                 position: 'bottom'
+            }
+        }
     ]);
 
     if (!result.ok) {
@@ -68,10 +131,10 @@ async function generateYoutubeVideo() {
 
     await fs.writeFile(outputPath, result.data as Buffer);
     
-    // 4. Generate Thumbnail from the 2-second mark
+    // 4. Generate Thumbnail from the 5-second mark
     console.log('📸 Generating YouTube Thumbnail...');
     const thumbResult = await generateThumbnail(outputPath, {
-        time: 2, // 2 second mark
+        time: 5,
         width: 1920,
         height: 1080,
         format: 'jpeg',
@@ -88,6 +151,11 @@ async function generateYoutubeVideo() {
         console.log('✅ Success! Thumbnail generated at:', outThumbPath);
         console.log(`📊 Video Stats: ${meta.data.width}x${meta.data.height}, ${meta.data.duration}s, ${meta.data.fps} FPS`);
     }
+
+    // Cleanup
+    await fs.unlink(tempVideoPath).catch(() => {});
+    await fs.unlink(bgImagePath).catch(() => {});
+    await fs.unlink(srtTempPath).catch(() => {});
 }
 
 generateYoutubeVideo().catch(console.error);

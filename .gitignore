@@ -42,9 +42,9 @@ tests/fixtures/sample.mp3
 tests/fixtures/sample.srt
 
 # Output generated file
-output-shorts.mp4
-output-youtube.mp4
-output-youtube-thumbnail.jpg
+examples/output-shorts.mp4
+examples/output-youtube.mp4
+examples/output-youtube-thumbnail.jpg
 
 # IDE / Editor
 .vscode/
