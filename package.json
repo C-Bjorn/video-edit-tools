@@ -2,6 +2,16 @@
   "name": "video-edit-tools",
   "version": "1.0.0",
   "description": "Deterministic video editing SDK for AI agents. Ships with MCP tools.",
+  "author": "swimmingkiim",
+  "license": "MIT",
+  "homepage": "https://github.com/swimmingkiim/video-edit-tools#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/swimmingkiim/video-edit-tools.git"
+  },
+  "bugs": {
+    "url": "https://github.com/swimmingkiim/video-edit-tools/issues"
+  },
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
