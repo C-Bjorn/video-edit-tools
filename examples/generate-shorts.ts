@@ -58,12 +58,21 @@ async function generateShorts() {
     // Add title text using image-edit-tools which expects layers array
     const finalBg = await addText(withGradient.data, {
          layers: [{
-             text: 'video-edit-tools\nSDK Demo',
+             text: 'video-edit-tools',
              fontFamily: 'Arial',
-             fontSize: 80,
+             fontSize: 90,
              color: '#ffffff',
              x: 540,
-             y: 400
+             y: 800,
+             anchor: 'center'
+         }, {
+             text: 'SDK Demo',
+             fontFamily: 'Arial',
+             fontSize: 70,
+             color: '#cccccc',
+             x: 540,
+             y: 950,
+             anchor: 'center'
          }]
     });
     if (!finalBg.ok) throw new Error('Failed to add text');

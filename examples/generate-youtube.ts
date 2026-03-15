@@ -59,12 +59,22 @@ async function generateYoutubeVideo() {
     // Add title text
     const finalBg = await addText(withGradient.data, {
          layers: [{
-             text: 'video-edit-tools Full SDK Tutorial\n(Deterministic AI Video Generation)',
+             text: 'video-edit-tools Full SDK Tutorial',
              fontFamily: 'Arial',
-             fontSize: 64,
+             fontSize: 70,
              color: '#ffffff',
              x: 960,
-             y: 300
+             y: 450,
+             anchor: 'center'
+         },
+         {
+             text: '(Deterministic AI Video Generation)',
+             fontFamily: 'Arial',
+             fontSize: 40,
+             color: '#aaccff',
+             x: 960,
+             y: 560,
+             anchor: 'center'
          }]
     });
     if (!finalBg.ok) throw new Error('Failed to add text');
