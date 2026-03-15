@@ -8,7 +8,7 @@ async function generateYoutubeVideo() {
     
     const examplesDir = process.cwd();
     const assetsDir = path.join(examplesDir, 'examples', 'assets');
-    const bgmPath = path.join(assetsDir, 'Will You Still Love Me Tomorrow.mp3');
+    const bgmPath = path.join(assetsDir, 'Cheek To Cheek.mp3');
     const outputPath = path.join(examplesDir, 'examples', 'output-youtube.mp4');
     const outThumbPath = path.join(examplesDir, 'examples', 'output-youtube-thumbnail.jpg');
     const tmpDir = path.join(examplesDir, 'tmp');
