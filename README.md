@@ -4,7 +4,7 @@ Deterministic video editing SDK for AI agents. Ships with MCP tools.
 
 ## Demo
 
-<video src="https://raw.githubusercontent.com/swimmingkiim/video-edit-tools/main/examples/intro-video/output/intro-en.mp4" controls="controls" muted="muted" style="max-width: 100%; border-radius: 8px;"></video>
+https://github.com/user-attachments/assets/deed7d6d-62f7-43cf-aca8-ef863d1e1f26
 
 ## Features
 
