@@ -141,13 +141,21 @@ export const allTools: Tool[] = [
     },
     {
         name: 'video_add_subtitles',
-        description: 'Embeds subtitles into a video.',
+        description: 'Embeds subtitles into a video as a soft (selectable) track or hard-burned into frames.',
         inputSchema: {
             type: 'object',
             properties: {
                 input: { type: 'string', description: 'Path or URL to input video' },
-                subtitles: { type: 'string', description: 'Path or URL to subtitle file, or array of subtitle objects' },
-                style: { type: 'object' },
+                subtitles: { type: 'string', description: 'Path to subtitle file (.srt, .vtt) or array of subtitle entry objects' },
+                mode: {
+                    type: 'string',
+                    enum: ['soft', 'hard'],
+                    description: 'soft (default): embed as a selectable subtitle stream, no re-encode. hard: burn subtitle text into video frames.'
+                },
+                style: {
+                    type: 'object',
+                    description: 'Styling for hard mode only (ignored in soft mode). Keys: fontSize, fontFamily, fontColor, outlineColor, outlineWidth, bold, italic, alignment (ASS: 2=bottom-center), marginV, backgroundOpacity (0-1).'
+                },
                 output: OUTPUT_PROP
             },
             required: ['input', 'subtitles']
