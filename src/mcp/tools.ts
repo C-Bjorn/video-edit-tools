@@ -2,8 +2,9 @@ import { Tool } from '@modelcontextprotocol/sdk/types.js';
 import * as ops from '../index.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { Worker } from 'node:worker_threads';
 import { generateTmpFilePath } from '../utils/tmp.js';
-import { createJob, resolveJob, failJob, getJob } from '../utils/jobs.js';
+import { createJob, resolveJob, failJob, getJob, setCancelFn, cancelJob } from '../utils/jobs.js';
 
 const OUTPUT_PROP = {
     type: 'string',
@@ -390,11 +391,22 @@ export const allTools: Tool[] = [
     },
     {
         name: 'video_get_job_status',
-        description: 'Check the status of a long-running video job. Returns processing | done | error plus the savedTo output path when done.',
+        description: 'Check the status of a long-running video job. Returns processing | done | error | cancelled plus the savedTo output path when done.',
         inputSchema: {
             type: 'object',
             properties: {
                 job_id: { type: 'string', description: 'Job ID returned by a long-running tool call (video_trim, video_concat, video_resize, video_transcribe, video_add_subtitles).' }
+            },
+            required: ['job_id']
+        }
+    },
+    {
+        name: 'video_cancel_job',
+        description: 'Cancel an in-flight video job. Terminates the associated worker/process and marks the job as cancelled. Returns ok:false if the job does not exist or is already complete.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                job_id: { type: 'string', description: 'Job ID to cancel.' }
             },
             required: ['job_id']
         }
@@ -416,6 +428,22 @@ export async function handleTool(name: string, args: any): Promise<any> {
             return { content: [{ type: 'text', text: JSON.stringify({ status: 'not_found' }) }] };
         }
         return { content: [{ type: 'text', text: JSON.stringify(record) }] };
+    }
+
+    // video_cancel_job — handled before ops lookup
+    if (name === 'video_cancel_job') {
+        const jobId = (args as any)?.job_id;
+        if (!jobId) {
+            return {
+                content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'Missing required parameter: job_id' }) }],
+                isError: true
+            };
+        }
+        const cancelled = cancelJob(jobId);
+        if (cancelled) {
+            return { content: [{ type: 'text', text: JSON.stringify({ ok: true, cancelled: true }) }] };
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ ok: false, error: 'Job not found or already complete' }) }] };
     }
 
     const fnName = name.replace('video_', '').replace(/_([a-z])/g, (g) => g[1].toUpperCase());
@@ -518,13 +546,19 @@ export async function handleTool(name: string, args: any): Promise<any> {
             const outputPath = mArgs.output ?? generateTmpFilePath(fmt);
             const opts = { ...mArgs, output: outputPath };
             delete opts.input;
-            setImmediate(async () => {
-                try {
-                    const res = await ops.transcribe(mArgs.input, opts);
-                    if (!res.ok) { failJob(jobId, (res as any).error ?? 'transcribe failed'); return; }
-                    resolveJob(jobId, outputPath);
-                } catch (e: any) { failJob(jobId, e?.message ?? String(e)); }
+            // Use a worker_threads Worker so Whisper inference does not block the main event loop.
+            // Without this, the main thread is blocked for the entire duration of inference
+            // (hours for large-v3 on CPU), making video_get_job_status and all other tools unresponsive.
+            const worker = new Worker(
+                new URL('../workers/transcribe-worker.js', import.meta.url),
+                { workerData: { input: mArgs.input, opts } }
+            );
+            setCancelFn(jobId, () => worker.terminate());
+            worker.once('message', (msg: { ok: boolean; savedTo?: string; error?: string }) => {
+                if (msg.ok) resolveJob(jobId, msg.savedTo ?? outputPath);
+                else failJob(jobId, msg.error ?? 'transcribe worker failed');
             });
+            worker.once('error', (e: Error) => failJob(jobId, e.message));
             return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId, status: 'processing' }) }] };
         }
 
