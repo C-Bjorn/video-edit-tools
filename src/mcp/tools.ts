@@ -284,9 +284,17 @@ export const allTools: Tool[] = [
             type: 'object',
             properties: {
                 input: { type: 'string', description: 'Path or URL to input video' },
-                model: { type: 'string', enum: ['tiny', 'base', 'small'] },
+                model: {
+                    type: 'string',
+                    enum: ['tiny', 'base', 'small', 'medium', 'large-v3'],
+                    description: 'Whisper model size. large-v3 gives the best accuracy for technical/domain content (~3 GB RAM). Defaults to base.'
+                },
                 language: { type: 'string' },
                 format: { type: 'string', enum: ['json', 'srt', 'vtt'] },
+                hotwords: {
+                    type: 'string',
+                    description: 'Optional comma-separated proper nouns or domain terms to bias transcription toward (e.g. "MegaMem, GraphRAG, Obsidian, Casey Bjørn"). Improves accuracy for branded/technical vocabulary without fine-tuning.'
+                },
                 output: { type: 'string', description: 'Optional path to save the transcript file (.srt, .vtt, or .json). If omitted the transcript is returned inline only.' }
             },
             required: ['input']
