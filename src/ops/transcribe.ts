@@ -14,8 +14,16 @@ env.useBrowserCache = false;
 // Ensure ffmpeg path is set (may already be set via run-ffmpeg.ts but be explicit)
 Ffmpeg.setFfmpegPath(ffmpegPath.path);
 
-let whisperPipeline: any = null;
-let isFirstRun = true;
+/** Per-model pipeline cache — keyed by Xenova model ID string. */
+let cachedPipeline: { instance: any; modelId: string } | null = null;
+
+const MODEL_DOWNLOAD_SIZES: Record<string, string> = {
+    'tiny':     '~75 MB',
+    'base':     '~150 MB',
+    'small':    '~490 MB',
+    'medium':   '~1.5 GB',
+    'large-v3': '~3 GB',
+};
 
 function formatTimestamp(seconds: number, format: 'srt' | 'vtt'): string {
     const hh = String(Math.floor(seconds / 3600)).padStart(2, '0');
@@ -61,12 +69,8 @@ function extractPCMFloat32(inputPath: string): Promise<Float32Array> {
 export async function transcribe(input: VideoInput, options?: TranscribeOptions): Promise<Result<TranscribeResult>> {
     const warnings: string[] = [];
 
-    if (isFirstRun) {
-        warnings.push('Downloading Whisper model on first run (~150MB)...');
-        isFirstRun = false;
-    }
-
     const modelSize = options?.model || 'base';
+    const modelId = `Xenova/whisper-${modelSize}`;
 
     const loaded = await loadVideo(input);
     if (!loaded.ok) return loaded;
@@ -76,18 +80,34 @@ export async function transcribe(input: VideoInput, options?: TranscribeOptions)
         // 1. Decode audio to Float32Array via FFmpeg (16kHz mono, no AudioContext needed)
         const audioData = await extractPCMFloat32(inputPath);
 
-        // 2. Load Whisper model (cached after first call)
-        if (!whisperPipeline) {
-            whisperPipeline = await pipeline('automatic-speech-recognition', `Xenova/whisper-${modelSize}`);
+        // 2. Load Whisper model — reload if a different model is requested
+        if (!cachedPipeline || cachedPipeline.modelId !== modelId) {
+            const sizeHint = MODEL_DOWNLOAD_SIZES[modelSize] ?? 'unknown size';
+            warnings.push(`Downloading Whisper model '${modelSize}' (${sizeHint}) — this only happens once per model...`);
+            cachedPipeline = {
+                instance: await pipeline('automatic-speech-recognition', modelId),
+                modelId
+            };
         }
 
-        // 3. Run transcription — Float32Array input avoids the AudioContext path
-        const result = await whisperPipeline(audioData, {
+        // 3. Build generate_kwargs — pass hotwords as an initial prompt to bias
+        // the Whisper decoder toward branded/technical terms without fine-tuning.
+        // NOTE: @xenova/transformers v2 spreads generate_kwargs into model.generate().
+        // Whisper's decoder accepts a `prompt` string as soft context for the first chunk.
+        // If the installed version does not support this key it is silently ignored.
+        const generateKwargs: Record<string, any> = {};
+        if (options?.hotwords) {
+            generateKwargs.prompt = options.hotwords;
+        }
+
+        // 4. Run transcription — Float32Array input avoids the AudioContext path
+        const result = await cachedPipeline.instance(audioData, {
             chunk_length_s: 30,
             stride_length_s: 5,
             language: options?.language,
             task: 'transcribe',
-            return_timestamps: true
+            return_timestamps: true,
+            ...(Object.keys(generateKwargs).length > 0 ? { generate_kwargs: generateKwargs } : {})
         });
 
         const segments = result.chunks || [];

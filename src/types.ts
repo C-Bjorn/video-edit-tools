@@ -197,9 +197,16 @@ export interface MuteSectionOptions {
 }
 
 export interface TranscribeOptions {
-  model?: 'tiny' | 'base' | 'small';
+  model?: 'tiny' | 'base' | 'small' | 'medium' | 'large-v3';
   language?: string;
   format?: 'json' | 'srt' | 'vtt';
+  /**
+   * Optional comma-separated list of proper nouns or domain terms to bias
+   * the Whisper decoder toward (e.g. "MegaMem, GraphRAG, Obsidian, Casey Bjørn").
+   * Implemented via initial prompt injection — no fine-tuning required.
+   * Dramatically improves accuracy for branded/technical vocabulary.
+   */
+  hotwords?: string;
   /** Optional path to save the transcript file (.srt, .vtt, or .json). */
   output?: string;
 }
