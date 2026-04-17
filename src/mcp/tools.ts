@@ -3,6 +3,7 @@ import * as ops from '../index.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { generateTmpFilePath } from '../utils/tmp.js';
+import { createJob, resolveJob, failJob, getJob } from '../utils/jobs.js';
 
 const OUTPUT_PROP = {
     type: 'string',
@@ -386,12 +387,39 @@ export const allTools: Tool[] = [
             },
             required: ['inputs', 'steps']
         }
+    },
+    {
+        name: 'video_get_job_status',
+        description: 'Check the status of a long-running video job. Returns processing | done | error plus the savedTo output path when done.',
+        inputSchema: {
+            type: 'object',
+            properties: {
+                job_id: { type: 'string', description: 'Job ID returned by a long-running tool call (video_trim, video_concat, video_resize, video_transcribe, video_add_subtitles).' }
+            },
+            required: ['job_id']
+        }
     }
 ];
 
 export async function handleTool(name: string, args: any): Promise<any> {
+    // video_get_job_status — handled before ops lookup (getJobStatus doesn't exist in ops)
+    if (name === 'video_get_job_status') {
+        const jobId = (args as any)?.job_id;
+        if (!jobId) {
+            return {
+                content: [{ type: 'text', text: JSON.stringify({ ok: false, code: 'INVALID_INPUT', error: 'Missing required parameter: job_id' }) }],
+                isError: true
+            };
+        }
+        const record = getJob(jobId);
+        if (!record) {
+            return { content: [{ type: 'text', text: JSON.stringify({ status: 'not_found' }) }] };
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(record) }] };
+    }
+
     const fnName = name.replace('video_', '').replace(/_([a-z])/g, (g) => g[1].toUpperCase());
-    
+
     if (!(fnName in ops)) {
         throw new Error(`Tool not found: ${name}`);
     }
@@ -423,6 +451,102 @@ export async function handleTool(name: string, args: any): Promise<any> {
     }
 
     try {
+        // ── Async job tools ──────────────────────────────────────────────────────────
+        // These tools spawn FFmpeg in the background and return a job_id immediately
+        // so the MCP client's ~60s hard timeout is never reached on large files.
+        // Poll with video_get_job_status to check completion.
+
+        if (name === 'video_trim') {
+            const jobId = createJob();
+            const outputPath = mArgs.output ?? generateTmpFilePath('mp4');
+            const opts = { ...mArgs };
+            delete opts.input;
+            delete opts.output;
+            setImmediate(async () => {
+                try {
+                    const res = await ops.trim(mArgs.input, Object.keys(opts).length > 0 ? opts : undefined);
+                    if (!res.ok) { failJob(jobId, (res as any).error ?? 'trim failed'); return; }
+                    await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
+                    await fs.writeFile(outputPath, res.data as Buffer);
+                    resolveJob(jobId, outputPath);
+                } catch (e: any) { failJob(jobId, e?.message ?? String(e)); }
+            });
+            return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId, status: 'processing' }) }] };
+        }
+
+        if (name === 'video_concat') {
+            const jobId = createJob();
+            const outputPath = mArgs.output ?? generateTmpFilePath(mArgs.format ?? 'mp4');
+            const opts = { ...mArgs };
+            delete opts.inputs;
+            delete opts.output;
+            setImmediate(async () => {
+                try {
+                    const res = await ops.concat(mArgs.inputs, Object.keys(opts).length > 0 ? opts : undefined);
+                    if (!res.ok) { failJob(jobId, (res as any).error ?? 'concat failed'); return; }
+                    await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
+                    await fs.writeFile(outputPath, res.data as Buffer);
+                    resolveJob(jobId, outputPath);
+                } catch (e: any) { failJob(jobId, e?.message ?? String(e)); }
+            });
+            return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId, status: 'processing' }) }] };
+        }
+
+        if (name === 'video_resize') {
+            const jobId = createJob();
+            const outputPath = mArgs.output ?? generateTmpFilePath('mp4');
+            const opts = { ...mArgs };
+            delete opts.input;
+            delete opts.output;
+            setImmediate(async () => {
+                try {
+                    const res = await ops.resize(mArgs.input, Object.keys(opts).length > 0 ? opts : undefined);
+                    if (!res.ok) { failJob(jobId, (res as any).error ?? 'resize failed'); return; }
+                    await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
+                    await fs.writeFile(outputPath, res.data as Buffer);
+                    resolveJob(jobId, outputPath);
+                } catch (e: any) { failJob(jobId, e?.message ?? String(e)); }
+            });
+            return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId, status: 'processing' }) }] };
+        }
+
+        if (name === 'video_transcribe') {
+            const jobId = createJob();
+            // Always provide an output path — transcribe op writes the file itself when options.output is set.
+            // This ensures resolveJob always has a concrete savedTo path.
+            const fmt = mArgs.format ?? 'json';
+            const outputPath = mArgs.output ?? generateTmpFilePath(fmt);
+            const opts = { ...mArgs, output: outputPath };
+            delete opts.input;
+            setImmediate(async () => {
+                try {
+                    const res = await ops.transcribe(mArgs.input, opts);
+                    if (!res.ok) { failJob(jobId, (res as any).error ?? 'transcribe failed'); return; }
+                    resolveJob(jobId, outputPath);
+                } catch (e: any) { failJob(jobId, e?.message ?? String(e)); }
+            });
+            return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId, status: 'processing' }) }] };
+        }
+
+        if (name === 'video_add_subtitles') {
+            const jobId = createJob();
+            const outputPath = mArgs.output ?? generateTmpFilePath('mp4');
+            const opts = { ...mArgs };
+            delete opts.input;
+            delete opts.output;
+            setImmediate(async () => {
+                try {
+                    const res = await ops.addSubtitles(mArgs.input, Object.keys(opts).length > 0 ? opts : undefined);
+                    if (!res.ok) { failJob(jobId, (res as any).error ?? 'addSubtitles failed'); return; }
+                    await fs.mkdir(path.dirname(path.resolve(outputPath)), { recursive: true });
+                    await fs.writeFile(outputPath, res.data as Buffer);
+                    resolveJob(jobId, outputPath);
+                } catch (e: any) { failJob(jobId, e?.message ?? String(e)); }
+            });
+            return { content: [{ type: 'text', text: JSON.stringify({ job_id: jobId, status: 'processing' }) }] };
+        }
+
+        // ── Synchronous tools (fast ops / metadata) ──────────────────────────────────
         let inputArg = mArgs.input;
         let secondArg: any = { ...mArgs };
         delete secondArg.input;

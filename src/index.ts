@@ -1,6 +1,7 @@
 export * from './types.js';
 export * from './utils/result.js';
 export * from './utils/load-video.js';
+export type { JobRecord, JobStatus } from './utils/jobs.js';
 
 export { trim } from './ops/trim.js';
 export { concat } from './ops/concat.js';
